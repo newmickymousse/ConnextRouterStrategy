@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0
 
-pragma solidity 0.6.12;
+pragma solidity ^0.8.11;
 pragma experimental ABIEncoderV2;
 
+import {IConnextHandler} from "@connext/interfaces/IConnextHandler.sol";
 import {BaseStrategy} from "@yearnvaults/contracts/BaseStrategy.sol";
-import {
-    SafeERC20,
-    SafeMath,
-    IERC20,
-    Address
-} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-import "@openzeppelin/contracts/math/Math.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface IVault is IERC20 {
     function token() external view returns (address);
@@ -31,7 +29,6 @@ interface IVault is IERC20 {
 contract RouterStrategy is BaseStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
-    using SafeMath for uint256;
 
     string internal strategyName;
     IVault public yVault;
@@ -117,7 +114,7 @@ contract RouterStrategy is BaseStrategy {
         override
         returns (uint256)
     {
-        return balanceOfWant().add(valueOfInvestment());
+        return balanceOfWant() + valueOfInvestment();
     }
 
     function delegatedAssets() external view override returns (uint256) {
@@ -139,13 +136,13 @@ contract RouterStrategy is BaseStrategy {
 
         // Estimate the profit we have so far
         if (_totalDebt <= _totalAsset) {
-            _profit = _totalAsset.sub(_totalDebt);
+            _profit = _totalAsset - _totalDebt;
         }
 
         // We take profit and debt
         uint256 _amountFreed;
         (_amountFreed, _loss) = liquidatePosition(
-            _debtOutstanding.add(_profit)
+            _debtOutstanding + _profit
         );
         _debtPayment = Math.min(_debtOutstanding, _amountFreed);
 
@@ -154,14 +151,14 @@ contract RouterStrategy is BaseStrategy {
             // debtOutstanding 100, profit 40, _amountFreed 100, _loss 50
             // loss should be 10, (50-40)
             // profit should endup in 0
-            _loss = _loss.sub(_profit);
+            _loss = _loss - _profit;
             _profit = 0;
         } else {
             // Example:
             // debtOutstanding 100, profit 50, _amountFreed 140, _loss 10
             // _profit should be 40, (50 profit - 10 loss)
             // loss should end up in be 0
-            _profit = _profit.sub(_loss);
+            _profit = _profit - _loss;
             _loss = 0;
         }
     }
@@ -193,13 +190,13 @@ contract RouterStrategy is BaseStrategy {
             return (_amountNeeded, 0);
         }
 
-        uint256 toWithdraw = _amountNeeded.sub(balance);
+        uint256 toWithdraw = _amountNeeded - balance;
         _withdrawFromYVault(toWithdraw);
 
         uint256 looseWant = balanceOfWant();
         if (_amountNeeded > looseWant) {
             _liquidatedAmount = looseWant;
-            _loss = _amountNeeded.sub(looseWant);
+            _loss = _amountNeeded - looseWant;
         } else {
             _liquidatedAmount = _amountNeeded;
         }
@@ -286,13 +283,11 @@ contract RouterStrategy is BaseStrategy {
         view
         returns (uint256)
     {
-        return amount.mul(10**yVault.decimals()).div(yVault.pricePerShare());
+        return (amount * (10**yVault.decimals()))/(yVault.pricePerShare());
     }
 
     function valueOfInvestment() public view virtual returns (uint256) {
         return
-            yVault.balanceOf(address(this)).mul(yVault.pricePerShare()).div(
-                10**yVault.decimals()
-            );
+            (yVault.balanceOf(address(this))*(yVault.pricePerShare()))/10**(yVault.decimals());
     }
 }
