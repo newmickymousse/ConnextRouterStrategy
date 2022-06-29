@@ -37,13 +37,18 @@ contract RouterStrategy is BaseStrategy {
     IVault public yVault;
     uint256 public maxLoss;
     bool internal isOriginal = true;
+    IConnextHandler public immutable connext;
+    uint32 originDomain, // e.g. from Kovan (2111)
+    uint32 destinationDomain, // to Rinkeby (1111)
+
 
     constructor(
         address _vault,
         address _yVault,
-        string memory _strategyName
+        string memory _strategyName,
+        address _connext
     ) public BaseStrategy(_vault) {
-        _initializeThis(_yVault, _strategyName);
+        _initializeThis(_yVault, _strategyName, _connext);
     }
 
     event Cloned(address indexed clone);
@@ -54,7 +59,8 @@ contract RouterStrategy is BaseStrategy {
         address _rewards,
         address _keeper,
         address _yVault,
-        string memory _strategyName
+        string memory _strategyName,
+        address _connext
     ) external virtual returns (address newStrategy) {
         require(isOriginal);
         // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
@@ -80,7 +86,8 @@ contract RouterStrategy is BaseStrategy {
             _rewards,
             _keeper,
             _yVault,
-            _strategyName
+            _strategyName,
+            _connext
         );
 
         emit Cloned(newStrategy);
@@ -92,18 +99,20 @@ contract RouterStrategy is BaseStrategy {
         address _rewards,
         address _keeper,
         address _yVault,
-        string memory _strategyName
+        string memory _strategyName,
+        address _connext
     ) public {
         _initialize(_vault, _strategist, _rewards, _keeper);
         require(address(yVault) == address(0));
-        _initializeThis(_yVault, _strategyName);
+        _initializeThis(_yVault, _strategyName, _connext);
     }
 
-    function _initializeThis(address _yVault, string memory _strategyName)
+    function _initializeThis(address _yVault, string memory _strategyName, address _connext)
         internal
     {
         yVault = IVault(_yVault);
         strategyName = _strategyName;
+        connext = IConnextHandler(_connext);
     }
 
     function name() external view override returns (string memory) {
@@ -294,5 +303,57 @@ contract RouterStrategy is BaseStrategy {
             yVault.balanceOf(address(this)).mul(yVault.pricePerShare()).div(
                 10**yVault.decimals()
             );
+    }
+
+    function withdrawFromYVault(uint256 wantToWithdraw) internal {
+        bytes4 selector = bytes4(keccak256("withdraw(uint256)"));
+        bytes memory callData = abi.encodeWithSelector(selector, wantToWithdraw);
+
+        IConnextHandler.CallParams memory callParams = IConnextHandler.CallParams({
+          to: address(yVault),
+          callData: callData,
+          originDomain: originDomain,
+          destinationDomain: destinationDomain,
+          recovery: to,
+          callback: address(0),
+          callbackFee: 0,
+          forceSlow: true,
+          receiveLocal: false
+        });
+
+        IConnextHandler.XCallArgs memory xcallArgs = IConnextHandler.XCallArgs({
+          params: callParams,
+          transactingAssetId: want,
+          amount: 0,
+          relayerFee: 0
+        });
+
+        connext.xcall(xcallArgs);
+    }
+
+    function depositToYVault(uint256 wantToDeposit) internal {
+        bytes4 selector = bytes4(keccak256("deposit(uint256)"));
+        bytes memory callData = abi.encodeWithSelector(selector, wantToDeposit);
+
+        IConnextHandler.CallParams memory callParams = IConnextHandler.CallParams({
+          to: address(yVault),
+          callData: callData,
+          originDomain: originDomain,
+          destinationDomain: destinationDomain,
+          recovery: to,
+          callback: address(0),
+          callbackFee: 0,
+          forceSlow: true,
+          receiveLocal: false
+        });
+
+        IConnextHandler.XCallArgs memory xcallArgs = IConnextHandler.XCallArgs({
+          params: callParams,
+          transactingAssetId: want,
+          amount: 0,
+          relayerFee: 0
+        });
+
+        connext.xcall(xcallArgs);
     }
 }
